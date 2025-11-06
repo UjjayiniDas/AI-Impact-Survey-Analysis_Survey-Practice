@@ -1,0 +1,32 @@
+CODE,NAME,SIZE,,SECTOR,,,,,,,Very Large,Count of Very Large
+AF,United States Department of the Air Force,Very Large,,"Defence, Security & Justice",,,,,,,Medium,12
+AG,Department of Agriculture,Very Large,,Agriculture & Environmental Governance,,,,,,,Large,9
+AM,U.S. Agency for International Development,Medium,,Civil Government,,,,,,,Very Large,8
+AR,United States Department of the Army,Very Large,,"Defence, Security & Justice",,,,,,,Grand Total,29
+CM,Department of Commerce,Large,,Business & Trade,,,,,,,,
+CU,National Credit Union Administration,Medium,,Banking and Investment Management,,,,,,,"Defence, Security & Justice",6
+DD,"OSD, Joint Staff, Defense Agencies, and Field Activities",Very Large,,"Defence, Security & Justice",,,,,,,Agriculture & Environmental Governance,2
+DJ,Department of Justice,Very Large,,"Defence, Security & Justice",,,,,,,Civil Government,7
+DL,Department of Labor,Large,,Civil Government,,,,,,,Business & Trade,3
+DN,Department of Energy,Large,,Energy & Chemical,,,,,,,Banking and Investment Management,2
+DR,Federal Energy Regulatory Commission,Medium,,Energy & Chemical,,,,,,,Energy & Chemical,3
+ED,Department of Education,Medium,,Civil Government,,,,,,,Miscellaneous,2
+EE,Equal Employment Opportunity Commission,Medium,,Civil Government,,,,,,,Healthcare,1
+EP,Environmental Protection Agency,Large,,Agriculture & Environmental Governance,,,,,,,Real Estate,2
+FT,Federal Trade Commission,Medium,,Business & Trade,,,,,,,Information & Knowledge Management,2
+GS,General Services Administration,Large,,Miscellaneous,,,,,,,"Transportation, Hospitality & Service",1
+HE,Department of Health and Human Services,Very Large,,Healthcare,,,,,,,,
+HS,Department of Homeland Security,Very Large,,"Defence, Security & Justice",,,,,,,,
+HU,Department of Housing and Urban Development,Medium,,Real Estate,,,,,,,,
+IN,Department of the Interior,Large,,Real Estate,,,,,,,,
+NF,National Science Foundation,Medium,,Information & Knowledge Management,,,,,,,,
+NQ,National Archives and Records Administration,Medium,,Information & Knowledge Management,,,,,,,,
+NU,Nuclear Regulatory Commission,Medium,,Energy & Chemical,,,,,,,,
+NV,United States Department of the Navy,Very Large,,"Defence, Security & Justice",,,,,,,,
+OM,Office of Personnel Management,Medium,,Civil Government,,,,,,,,
+SB,Small Business Administration,Medium,,Business & Trade,,,,,,,,
+ST,Department of State,Large,,Civil Government,,,,,,,,
+SZ,Social Security Administration,Large,,Civil Government,,,,,,,,
+TD,Department of Transportation,Large,,"Transportation, Hospitality & Service",,,,,,,,
+TR,Department of the Treasury,Very Large,,Banking and Investment Management,,,,,,,,
+XX,All Other Agencies,Very Large,Calculation in Sheet2,Miscellaneous,,,,,,,,

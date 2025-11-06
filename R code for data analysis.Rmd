@@ -1,0 +1,591 @@
+---
+title: "AI Survey Analysis_whole questionnaire0926"
+author: "Ujjayini Das"
+date: "2025-09-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+pacman::p_load(lavaan,lavaan.survey,semTools,tidyverse,survey,ggplot2,brms,rstan,ordinal,boot,readxl,xlsx,polycor,psych,gridExtra,RColorBrewer,reshape2,xtable,mice,scales,srvyr,rstatix)
+```
+
+## Read the data 
+
+```{r}
+df_analysis = read_csv("Data/AI Impact Survey Data_092625.csv")
+
+## Preprocessing
+#### Factor recoding for demographics
+mod_data = df_analysis %>%
+  mutate(Race = recode_factor(race,`White or Caucasian`= "1", `Black or African American`="2", `Mixed race`= "3", `Prefer not to say`="4"),
+         Hispanic = recode_factor(ethnicity,`No`="1",`Yes`="2",`NR` = "3"),
+         Age = recode_factor(age,`Under 40`="1",`40 or older`="2"),
+         Sex = recode_factor(gender,`Male`="1",`Female`="2", `Non-binary / third gender` = "3", `Prefer not to say` = "4"),
+         Sup = recode_factor(supervisory,`Non-supervisor/Team Leader`="1",`Supervisor/Manager/Executive`="2"),
+         Fed = recode_factor(`duration in Fed`,`10 years or fewer`="1",`11 to 20 years`="2",`More than 20 years` = "3"),
+         Military = recode_factor(`military service`,`No prior Military Service` = "1", `Military service` = "2")) 
+```
+
+
+## Imputing item-nonresponse in outcomes
+
+
+```{r}
+# recoding outcomes to ordered factors
+## Look up table
+map = list(
+   c(
+    "Strongly disagree" =           "1",
+    "Disagree"          =           "2",
+    "Somewhat disagree"           = "3",
+    "Somewhat disagreeae" = "3",
+    "Neither disagree nor agree"  = "4",
+    "Somewhat agree" = "5", 
+    "Agree"             = "6",
+    "Strongly agree"    = "7"
+    
+  ),
+  
+  c(
+    "Extremely dissatisfied" =           "1",
+    "Moderately dissatisfied"          =           "2",
+    "Slightly dissatisfied"           = "3",
+    "Neither dissatisfied nor satisfied"  = "4",
+    "Slightly satisfied" = "5", 
+    "Moderately satisfied"             = "6",
+    "Extremely satisfied"    = "7"
+    
+  ),
+  c(
+    "Not at all" = "1",
+    "To some extent" = "2",
+    "Moderately" = "3",
+    "Very much" = "4",
+    "Extremely" = "5"
+  ),
+  c(
+    "No significance" = "1",
+    "Low significance" =  "2",
+    "High significance" = "3"
+  ),
+   c("Extremely dissatisfied" =           "1",
+    "Somewhat dissatisfied"          =           "2",
+    "Neither satisfied nor dissatisfied"  = "3",
+    "Somewhat satisfied" = "4", 
+    "Extremely satisfied"    = "5"
+    
+  )
+)
+convert_with_map = function(x, lookup) {
+  factor(x, 
+         levels = names(lookup), 
+         labels = lookup, 
+         ordered = TRUE)
+}
+
+# replicating mod_data for factor conversion
+fct_grp = list(agree = c(14:17,30:35),
+                sat = 18,
+                five_pt = c(36:39),
+                hindrance = c(25:29),
+                agree_5pt = c(22:24))
+
+test2 = mod_data
+for(i in fct_grp[[1]]){
+  test2[[i]] = convert_with_map(mod_data[[i]], map[[1]])
+}
+for(i in fct_grp[[2]]){
+  test2[[i]] = convert_with_map(mod_data[[i]], map[[2]])
+}
+for(i in fct_grp[[3]]){
+  test2[[i]] = convert_with_map(mod_data[[i]], map[[3]])
+}
+for(i in fct_grp[[4]]){
+  test2[[i]] = convert_with_map(mod_data[[i]], map[[4]])
+}
+for(i in fct_grp[[5]]){
+  test2[[i]] = convert_with_map(mod_data[[i]], map[[5]])
+}
+```
+
+```{r}
+# number of missing observations per variable
+n_missing = colSums(is.na(test2[,c(25:39)]))
+
+```
+
+```{r}
+## multiple imputation
+test_agree = mice(test2[,c(30:35)], m = 5, method = c(rep("polr",6)),maxit = 20)
+test_hindrance = mice(test2[,c(25:29)], m = 5, method = c(rep("polr",5)),maxit = 20)
+test_fivept = mice(test2[,c(36:39)], m = 5, method = c(rep("polr",4)),maxit = 20)
+
+
+## Gathering all variable names
+var_name = c(names(test_hindrance[["imp"]]), names(test_agree[["imp"]]),names(test_fivept[["imp"]]))
+
+varname= c()
+for(i in 1:15){
+tmp= rep(var_name[i],n_missing[i])
+ varname= c(varname,tmp)
+}
+
+## Storing IDs for missing respondents by scale
+RID_agree = c()
+for(i in names(test_agree[["imp"]])){
+  RID_agree = c(RID_agree,as.numeric(rownames(test_agree[["imp"]][[i]])))
+}
+
+RID_fivept = c()
+for(i in names(test_fivept[["imp"]])){
+  RID_fivept = c(RID_fivept,as.numeric(rownames(test_fivept[["imp"]][[i]])))
+}
+RID_hindrance = c()
+for(i in names(test_hindrance[["imp"]])){
+  RID_hindrance = c(RID_hindrance,as.numeric(rownames(test_hindrance[["imp"]][[i]])))
+}
+# stacked missing IDs
+RID= c(RID_hindrance,RID_agree,RID_fivept)
+
+# Putting together imputed datasets by scale (m = 5)
+imp_data_hindrance = data.frame()
+imp_data_agree = data.frame()
+imp_data_fivept = data.frame()
+
+for(i in names(test_hindrance[["imp"]]) ){
+  imp_data_hindrance = rbind(imp_data_hindrance, test_hindrance[["imp"]][[i]])
+}
+for(i in names(test_agree[["imp"]]) ){
+  imp_data_agree = rbind(imp_data_agree, test_agree[["imp"]][[i]])
+}
+for(i in names(test_fivept[["imp"]]) ){
+  imp_data_fivept = rbind(imp_data_fivept, test_fivept[["imp"]][[i]])
+}
+## Finding mode for imputing back to original data
+imp_data_hindrance = imp_data_hindrance %>%
+  rowwise() %>%
+  mutate(most_common = {
+    vals = c_across(1:5)
+    uniq_vals = unique(vals)
+    uniq_vals[which.max(tabulate(match(vals, uniq_vals)))]
+  }) %>%
+  ungroup() 
+imp_data_agree = imp_data_agree %>%
+  rowwise() %>%
+  mutate(most_common = {
+    vals = c_across(1:5)
+    uniq_vals = unique(vals)
+    uniq_vals[which.max(tabulate(match(vals, uniq_vals)))]
+  }) %>%
+  ungroup() 
+imp_data_fivept = imp_data_fivept %>%
+  rowwise() %>%
+  mutate(most_common = {
+    vals = c_across(1:5)
+    uniq_vals = unique(vals)
+    uniq_vals[which.max(tabulate(match(vals, uniq_vals)))]
+  }) %>%
+  ungroup() 
+
+
+## Final imputed data
+all_imp_resp_hindrance = data.frame(Variable= varname[1:5], RID= RID_hindrance, most_common = imp_data_hindrance$most_common, row.names = NULL)
+all_imp_resp_agree = data.frame(Variable= varname[6:26], RID= RID_agree, most_common = imp_data_agree$most_common, row.names = NULL)
+all_imp_resp_fivept = data.frame(Variable= varname[27:44], RID= RID_fivept, most_common = imp_data_fivept$most_common, row.names = NULL)
+
+```
+
+
+```{r}
+## Take the imputed values and paste in original data
+for (i in 1:nrow(all_imp_resp_hindrance)) {
+  col_name = all_imp_resp_hindrance$Variable[i]
+  row_num  = all_imp_resp_hindrance$RID[i]
+  value    = all_imp_resp_hindrance$most_common[i]
+  
+  # Replace missing with imputed value
+  test2[row_num, col_name] = value
+}
+for (i in 1:nrow(all_imp_resp_agree)) {
+  col_name = all_imp_resp_agree$Variable[i]
+  row_num  = all_imp_resp_agree$RID[i]
+  value    = all_imp_resp_agree$most_common[i]
+  
+  # Replace missing with imputed value
+  test2[row_num, col_name] = value
+}
+for (i in 1:nrow(all_imp_resp_fivept)) {
+  col_name = all_imp_resp_fivept$Variable[i]
+  row_num  = all_imp_resp_fivept$RID[i]
+  value    = all_imp_resp_fivept$most_common[i]
+  
+  # Replace missing with imputed value
+  test2[row_num, col_name] = value
+}
+
+```
+
+
+## Fitting polr() regression model
+
+```{r}
+df_y = test2[,c(14:18,25:39)]
+df_x = test2[,40:46]
+df = cbind(df_y,df_x)
+
+df1 = df[,-c(5,18,19)] ## final dataset without three questions
+### writing to csv
+write.csv(df1, "Data/final_AI_data.csv")
+```
+
+
+## Prediction of Y in FEVS
+
+```{r}
+df_FEVS = read_excel("Data/FEVS 2023 snippet.xlsx")
+
+### Preprocessing
+df_FEVS = df_FEVS %>%
+  mutate(Age = recode_factor(DAGEGRP, `A` = "1", `B` = "2"),
+         Sup = recode_factor(DSUPER, `A` = "1", `B` = "2"),
+         Fed = recode_factor(DFEDTEN, `A` ="1", `B`= "2", `C` = "3"),
+         Sex = recode_factor(DSEX, `A` = "1", `B`= "2"),
+         Hispanic = recode_factor(DHISP, `A` = "2", `B` = "1"),
+         Race = recode_factor(DRNO, `A` = "2", `B` = "1", `C` = "4", `D` = "4")) %>%
+  select(Age,Sup, Fed, Sex,Hispanic, Race, POSTWT,agency) %>%
+  mutate(ID = 1:nrow(.))
+df_FEVS_pred = df_FEVS
+for(i in 1:17){
+ df_FEVS_pred = cbind(df_FEVS_pred, predict(m[[i]], df_FEVS)) 
+}
+names(df1)[16] = "factors regarding agencys success - Gauging the comfort level of the clients with the use of AI technologies"
+colnames(df_FEVS_pred) = make.names(c(names(df_FEVS),paste0("y_", names(df1[,1:17]))))
+
+```
+
+
+## cfa with ordinal data
+```{r}
+cfa_model = '
+  Fluency =~ y_clear_explanation + y_security_measure + y_accountability + y_privacy + y_Knowledgeable.employee + y_Partnerships.with.AI.solutions.providers.and.consultants
+  Adoption =~ y_hindrace.to.AI.adoption...Implementation.costs.of.AI.solutions + y_hindrace.to.AI.adoption...Integration.challenges.with.existing.infrastructure + y_hindrace.to.AI.adoption...Reputational.risks + y_hindrace.to.AI.adoption...Access.to.external.data + y_hindrace.to.AI.adoption...Sponsorship.from.agency.leadership + y_Governance.Program + y_factors.regarding.agencys.success...Gauging.the.comfort.level.of.the.clients.with.the.use.of.AI.technologies
+  Adaptation =~ y_Budget.optimisation + y_Better.services.to.our.clients + y_responsive.to.oversight.requests + y_Impact.on.strategic.focus
+
+  
+  Fluency ~~ Adoption
+  Adoption ~~ Adaptation
+  Adaptation ~~ Fluency
+'
+ordered_items = names(df_FEVS_pred)[9:25]
+cfa_model_fit_noweight = cfa(cfa_model,
+                 data = df_FEVS_pred,
+                 ordered = ordered_items,
+                 estimator = "WLSMV",
+                 missing = "pairwise")  # WLSMV doesn't use FIML
+
+summary(cfa_model_fit_noweight, fit.measures = TRUE, standardized = TRUE)
+
+
+
+## Checking for alternative covariances to be included in the model to decrease chi-square by 100000
+fit_check1=modindices(cfa_model_fit_noweight,minimum.value = 100000, sort = TRUE)
+write.csv(fit_check1,"Data/fit_check1.csv")
+
+cfa_model_2 = '
+  Fluency =~ y_clear_explanation + y_security_measure + y_accountability + y_privacy + y_Knowledgeable.employee + y_Partnerships.with.AI.solutions.providers.and.consultants
+  Adoption =~ y_hindrace.to.AI.adoption...Implementation.costs.of.AI.solutions + y_hindrace.to.AI.adoption...Integration.challenges.with.existing.infrastructure + y_hindrace.to.AI.adoption...Reputational.risks + y_hindrace.to.AI.adoption...Access.to.external.data + y_hindrace.to.AI.adoption...Sponsorship.from.agency.leadership + y_Governance.Program + y_factors.regarding.agencys.success...Gauging.the.comfort.level.of.the.clients.with.the.use.of.AI.technologies+y_clear_explanation
+  Adaptation =~ y_Budget.optimisation + y_Better.services.to.our.clients + y_responsive.to.oversight.requests + y_Impact.on.strategic.focus
+  y_clear_explanation ~~ y_privacy
+  y_clear_explanation ~~ y_accountability
+  y_Budget.optimisation ~~ y_Better.services.to.our.clients
+  y_hindrace.to.AI.adoption...Implementation.costs.of.AI.solutions ~~ y_hindrace.to.AI.adoption...Integration.challenges.with.existing.infrastructure
+  y_hindrace.to.AI.adoption...Reputational.risks ~~ y_Governance.Program
+  y_security_measure ~~ y_Governance.Program
+  y_privacy ~~ y_Governance.Program
+  
+  Fluency ~~ Adoption
+  Adoption ~~ Adaptation
+  Adaptation ~~ Fluency'
+
+cfa_model_fit_2 = cfa(cfa_model_2,
+                 data = df_FEVS_pred,
+                 ordered = ordered_items,
+                 estimator = "WLSMV",
+                 missing = "pairwise")  # WLSMV doesn't use FIML
+
+summary(cfa_model_fit_2, fit.measures = TRUE, standardized = TRUE)
+
+fit_check2=modindices(cfa_model_fit_2,minimum.value = 100000, sort = TRUE)
+write.csv(fit_check2,"Data/fit_check2.csv")
+
+```
+
+
+## Calculating positive and negative response %s
+
+```{r}
+pos_7 =function(df){
+  for(i in 1:ncol(df)){
+    df[,i] = ifelse(df[,i] %in% c(5:7),1,0)
+  }
+  return(df)
+}
+df_FEVS_pred_7 = df_FEVS_pred[,c(10:13,19:24)]  
+df_FEVS_pred_7 = pos_7(df_FEVS_pred_7)
+
+pos_5 =function(df){
+  for(i in 1:ncol(df)){
+    df[,i] = ifelse(df[,i] %in% c(4:5),1,0)
+  }
+  return(df)
+}
+df_FEVS_pred_5 = df_FEVS_pred[,c(25:26)]  
+df_FEVS_pred_5 = pos_5(df_FEVS_pred_5)
+
+pos_3 =function(df){
+  for(i in 1:ncol(df)){
+    df[,i] = ifelse(df[,i] %in% c(1:2),1,0)
+  }
+  return(df)
+}
+df_FEVS_pred_3 = df_FEVS_pred[,c(14:18)]  
+df_FEVS_pred_3 = pos_3(df_FEVS_pred_3)
+
+df_FEVS_pred_index = data.frame(df_FEVS_pred[,7:8], df_FEVS_pred_7, df_FEVS_pred_5, df_FEVS_pred_3)
+
+
+
+group_qs = list(
+  "Fluency" = names(df_FEVS_pred_index)[c(3:6,8:9)],
+  "Adoption" = names(df_FEVS_pred_index)[c(3,7,13,15:19)],
+  "Adaptation" = names(df_FEVS_pred_index)[c(10:12,14)]
+)
+weight = names(df_FEVS_pred_index)[1]
+
+lookup_index = tibble(
+  variable = unlist(group_qs, use.names = FALSE),
+  group = rep(names(group_qs), lengths(group_qs))
+)
+
+# ---------- Per-variable weighted percentage (0/1 variables) for overall population ----------
+pos_pct = df_FEVS_pred_index %>%
+  # keep only variables that are in lookup 
+  select(all_of(c(lookup_index$variable, weight))) %>%
+  pivot_longer(cols = -all_of(weight), names_to = "variable", values_to = "response") %>%
+  left_join(lookup_index, by = "variable") %>%
+  group_by(group, variable) %>%
+  summarise(
+    weighted_pct = weighted.mean(response, .data[[weight]], na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  arrange(group, variable)
+
+pos_pct
+
+## ------ fluency, adoption, adaptation scores for overall population ---------
+
+overall_scores = pos_pct %>%
+  group_by(group) %>%
+  summarise(`percentage of positive perception` = round(mean(weighted_pct),1))
+```
+
+### Fluency, adoption and adaptation scores by demographics ####
+
+```{r}
+df_FEVS_pred_index = cbind(df_FEVS_pred_index,df_FEVS_pred[,1:3])
+df_FEVS_pred_index = df_FEVS_pred_index %>%
+  mutate(fluency_score = rowSums(df_FEVS_pred_index[,c(3:6,8:9)]),
+         adoption_score = rowSums(df_FEVS_pred_index[,c(3,7,13,15:19)]),
+         adaptation_score = rowSums(df_FEVS_pred_index[,c(10:12,14)]))
+overall_scores_age = df_FEVS_pred_index %>%
+  group_by(Age) %>%
+  summarise(`Fluency score` = round(weighted.mean(fluency_score, POSTWT, na.rm = TRUE),1),
+            `Adoption score` = round(weighted.mean(adoption_score, POSTWT, na.rm = TRUE),1),
+            `Adaptation score` = round(weighted.mean(adaptation_score, POSTWT, na.rm = TRUE),1),
+            .groups = "drop") 
+overall_scores_age = overall_scores_age[-3,]
+overall_scores_fed = df_FEVS_pred_index %>%
+  group_by(Fed) %>%
+  summarise(`Fluency score` = round(weighted.mean(fluency_score, POSTWT, na.rm = TRUE),1),
+            `Adoption score` = round(weighted.mean(adoption_score, POSTWT, na.rm = TRUE),1),
+            `Adaptation score` = round(weighted.mean(adaptation_score, POSTWT, na.rm = TRUE),1),
+            .groups = "drop") 
+overall_scores_fed = overall_scores_fed[-4,]
+overall_scores_sup = df_FEVS_pred_index %>%
+  group_by(Sup) %>%
+  summarise(`Fluency score` = round(weighted.mean(fluency_score, POSTWT, na.rm = TRUE),1),
+            `Adoption score` = round(weighted.mean(adoption_score, POSTWT, na.rm = TRUE),1),
+            `Adaptation score` = round(weighted.mean(adaptation_score, POSTWT, na.rm = TRUE),1),
+            .groups = "drop") 
+overall_scores_sup = overall_scores_sup[-3,]
+
+## By agency
+overall_scores_agency = df_FEVS_pred_index %>%
+  group_by(agency) %>%
+  summarise(`Fluency score` = round(weighted.mean(fluency_score, POSTWT, na.rm = TRUE),1),
+            `Adoption score` = round(weighted.mean(adoption_score, POSTWT, na.rm = TRUE),1),
+            `Adaptation score` = round(weighted.mean(adaptation_score, POSTWT, na.rm = TRUE),1),
+            .groups = "drop") 
+agency_code= read.csv("Data/agency_codebook_updated.csv") %>%
+  dplyr::select(c(1:3,5))
+overall_scores_agency= merge(overall_scores_agency,agency_code, by.x="agency", by.y="CODE")
+
+```
+
+
+### Measuring Impact from Fluency, Adoption and Adaptation
+
+```{r}
+# ----- PCA ------- 
+impact_index= df_FEVS_pred_index[,c(1:2,20:25)]
+
+pca1= prcomp(impact_index[,6:8], scale. = TRUE, center = TRUE)
+pca1
+
+#------ SEM ------
+model_impact = 'adoption_score ~ b12*fluency_score
+                adaptation_score ~ b23*adoption_score'  
+fit_impact = sem(model_impact, data = impact_index[,6:8], std.lv = FALSE)
+summary(fit_impact, standardized = TRUE)
+std_est_impact = standardizedsolution(fit_impact)
+b12 = std_est_impact$est.std[std_est_impact$lhs=="adoption_score" & std_est_impact$rhs == "fluency_score"]
+b23 = std_est_impact$est.std[std_est_impact$lhs=="adaptation_score" & std_est_impact$rhs == "adoption_score"]
+w1 = b12*b23 # effect of fluency on adaptation
+w2 = b23 # effect of adoption on adaptation
+w3 = 1 # effect of adaptation on itself
+### normalized weights
+w_sum = sum(w1,w2,w3)
+w_1n = w1/w_sum
+w_2n = w2/w_sum
+w_3n = w3/w_sum
+## scaling the factors (different scales)
+impact_index = impact_index %>%
+  mutate(fluency_scaled = scale(fluency_score)[,1],
+         adoption_scaled = scale(adoption_score)[,1],
+         adaptation_scaled = scale(adaptation_score)[,1],
+         impact = w_1n*fluency_scaled+w_2n*adoption_scaled+w_3n*adaptation_scaled,
+         impact_scaled = scales::rescale(impact,to = c(0,100)),
+         impact_group = ifelse(impact_scaled < quantile(impact_scaled, 0.25, na.rm = TRUE), "Minimal impact", ifelse(impact_scaled >= quantile(impact_scaled, 0.25, na.rm = TRUE) & impact_scaled < quantile(impact_scaled, 0.5, na.rm = TRUE), "Moderate impact", ifelse(impact_scaled >= quantile(impact_scaled, 0.5, na.rm = TRUE) & impact_scaled < quantile(impact_scaled, 0.75, na.rm = TRUE), "Substantial impact","Extensive impact"))),
+         ID = rep(1:nrow(.))) 
+
+```
+
+### subgroup analysis on impact index ###
+
+```{r}
+design1 = as_survey(impact_index, 
+                          id = ID, 
+                          weights = POSTWT)
+
+overall_impact = design1 %>%
+  group_by(impact_group) %>%
+  summarise(proportion = survey_prop(),
+            n = survey_total())
+sum(overall_impact$n)
+svychisq(~impact_group+Age, design1, statistic= "Chisq", na.rm=TRUE)
+
+#For t-test
+design2= svydesign(ids= ~ID, weights= ~POSTWT, data= impact_index)
+svyttest(impact_scaled~Age, design= design2)
+age_by_fed = design1 %>%
+  group_by(Age, Fed) %>%
+  summarise(sc = survey_mean(impact_scaled, vartype = c("se", "ci"))) %>%
+  filter(!is.na(Age)) %>%
+  filter(!is.na(Fed))
+impact_index_agency_full = na.omit(impact_index_agency)
+age_by_fedplt = ggplot(impact_index_agency_full, aes(x = Fed, y = impact_scaled, fill = Age)) +
+  geom_boxplot(position = position_dodge(width = 0.8), width = 0.6, outlier.shape = 1)  +
+  scale_x_discrete(
+    name = "Duration in Federal Government",
+    labels = c("1" = "10 years or less", "2" = "11-20 years", "3" = "Over 20 years")
+  ) +
+  scale_fill_discrete(
+    name = "Age",
+    labels = c("1" = "Under 40 years", "2" = "40 or older")
+  ) +
+  labs(
+    y = "Mean AI Impact score (95% CI)"
+    #title = "AI Impact Scores by duration in Federal Government, stratified by age group"
+  ) +
+  theme_minimal() 
+ggsave("age_by_fed_impact_score.png", age_by_fedplt, dpi = 300)
+##Significant
+
+#by Sup
+svychisq(~impact_group+Sup, design1, statistic= "Chisq", na.rm=TRUE)
+
+#For t-test
+svyttest(impact_scaled~Sup, design= design2)
+
+#by Fed
+svychisq(~impact_group+Fed, design1, statistic= "Chisq", na.rm=TRUE)
+
+#For t-test
+glm_fed= svyglm(impact_scaled ~ Fed, design = design2)
+regTermTest(glm_fed, ~Fed)
+
+t1 = svyttest(impact_scaled ~ Fed, design = subset(design2, Fed %in% c("1","2")))
+t2 = svyttest(impact_scaled ~ Fed, design = subset(design2, Fed %in% c("1","3")))
+t3 = svyttest(impact_scaled ~ Fed, design = subset(design2, Fed %in% c("2","3")))
+p_adj = p.adjust(c(t1[["p.value"]][["Fed2"]],t2[["p.value"]][["Fed3"]],t3[["p.value"]][["Fed3"]]), method = "bonferroni")
+
+```
+
+## Group 31 agencies based on: Size of the agency, Industry and sector.
+
+```{r}
+impact_index_agency = left_join(impact_index,agency_code,by = c("agency" = "CODE"))
+## BY SIZE
+design3 = as_survey(impact_index_agency, 
+                          id = ID, 
+                          weights = POSTWT)
+overall_impactscore_agency1 = design3 %>%
+  group_by(SIZE) %>%
+  summarise(impact_score = survey_mean(impact_scaled),
+            n = survey_total())
+
+overall_impactscore_agency2 = design3 %>%
+  group_by(impact_group,SIZE) %>%
+  summarise(impact_score = survey_mean(impact_scaled),
+            n = survey_total())
+## by sector
+overall_impactscore_agency_sector1 = design3 %>%
+  group_by(SECTOR) %>%
+  summarise(impact_score = survey_mean(impact_scaled),
+            n = survey_total())
+
+overall_impactscore_agency_sector2 = design3 %>%
+  group_by(impact_group,SECTOR) %>%
+  summarise(impact_score = survey_mean(impact_scaled),
+            n = survey_total())
+overall_impactscore = design3 %>%
+  group_by(impact_group) %>%
+  summarise(impact_score = survey_mean(impact_scaled),
+            n = survey_total())
+overall_impactscore = overall_impactscore %>%
+  mutate(lci = impact_score - 1.96*impact_score_se,
+         uci = impact_score + 1.96*impact_score_se)
+
+#### tests
+#For t-test
+t.size1 = svyttest(impact_scaled ~ SIZE, design = subset(design3, SIZE %in% c("Large","Medium")))
+t.size2 = svyttest(impact_scaled ~ SIZE, design = subset(design3, SIZE %in% c("Large","Very Large")))
+t.size3 = svyttest(impact_scaled ~ SIZE, design = subset(design3, SIZE %in% c("Medium","Very Large")))
+p_adj.size = p.adjust(c(t.size1[["p.value"]][["SIZEMedium"]],t.size2[["p.value"]][["SIZEVery Large"]],t.size3[["p.value"]][["SIZEVery Large"]]), method = "bonferroni")
+
+lm_sector = svyglm(impact_scaled~SECTOR, design3)
+regTermTest(lm_sector, ~SECTOR)
+
+## Prepare horizontal barplots for size and sector
+overall_impactscore_agency1$SIZE= factor(overall_impactscore_agency1$SIZE, levels = c("Very Large", "Large","Medium" ))
+size_plot = ggplot(overall_impactscore_agency1[,1:2], aes(x = SIZE, y = impact_score)) +
+  geom_col(fill = "steelblue", width = 0.5) + coord_flip() + labs (x = "Size of Agencies", y = "Mean Impact Score") + theme_minimal()
+sector_plot = ggplot(overall_impactscore_agency_sector1[,1:2], aes(x = SECTOR, y = impact_score)) +
+  geom_col(fill = "steelblue", width = 0.5) + coord_flip() + labs (x = "Agencies by sector", y = "Mean Impact Score") + theme_minimal()
+
+ggsave("impact_scores_by_agency_size.png", size_plot,  dpi = 300)
+ggsave("impact_scores_by_agency_sector.png", sector_plot,  dpi = 300)
+```
+
