@@ -1,2 +1,2 @@
 # AI-Impact-Survey-Analysis_Survey-Practice
-This repository contains code and data for the paper on measuring impact of artificial intelligence on US federal employees. The survey data was integrated with the FEVS 2023 data for  bias correction.
+This repository contains code for the paper on measuring impact of artificial intelligence on US federal employees. The survey data was integrated with the FEVS 2023 data for bias correction using mass imputation, and the mass imputed data was used for further analysis. The microdata from the survey can not be made public for Institutional Review Board (IRB) restrictions. 
