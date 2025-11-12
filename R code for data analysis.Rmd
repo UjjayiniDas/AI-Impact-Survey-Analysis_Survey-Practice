@@ -523,9 +523,6 @@ svyttest(impact_scaled~Sup, design= design2)
 svychisq(~impact_group+Fed, design1, statistic= "Chisq", na.rm=TRUE)
 
 #For t-test
-glm_fed= svyglm(impact_scaled ~ Fed, design = design2)
-regTermTest(glm_fed, ~Fed)
-
 t1 = svyttest(impact_scaled ~ Fed, design = subset(design2, Fed %in% c("1","2")))
 t2 = svyttest(impact_scaled ~ Fed, design = subset(design2, Fed %in% c("1","3")))
 t3 = svyttest(impact_scaled ~ Fed, design = subset(design2, Fed %in% c("2","3")))
